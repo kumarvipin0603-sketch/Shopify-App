@@ -1,0 +1,7 @@
+data/
+exports/
+__pycache__/
+*.xlsx
+*.xls
+*.zip
+app_backup.py

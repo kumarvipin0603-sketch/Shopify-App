@@ -231,7 +231,7 @@ with st.sidebar:
     )
 
     page = st.radio(
-        "Navigation",
+        "",
         [
             "Dashboard",
             "Order Control Tower",
@@ -531,60 +531,6 @@ ct, matches, date_filter_label = (
 )
 
 
-# =========================================================
-# GLOBAL SELECTED-DATE KPI STRIP
-# =========================================================
-
-def _kpi_sum(df, column):
-    if df.empty or column not in df.columns:
-        return 0.0
-    return pd.to_numeric(df[column], errors="coerce").fillna(0).sum()
-
-
-def _format_inr_kpi(value):
-    value = float(value or 0)
-    absolute = abs(value)
-    if absolute >= 10_000_000:
-        return f"₹{value / 10_000_000:,.2f} Cr"
-    if absolute >= 100_000:
-        return f"₹{value / 100_000:,.2f} L"
-    return f"₹{value:,.0f}"
-
-
-def show_selected_date_kpis(df, selected_date_label):
-    if df.empty:
-        return
-
-    order_count = len(df)
-    order_subtotal_value = _kpi_sum(df, "Subtotal")
-    invoice_value = _kpi_sum(df, "Invoice_Value")
-    cn_value = _kpi_sum(df, "CN_Value")
-
-    if "Billing Status" in df.columns:
-        order_billed_count = int(df["Billing Status"].eq("Billed").sum())
-        order_not_billed_count = int((~df["Billing Status"].eq("Billed")).sum())
-    else:
-        order_billed_count = 0
-        order_not_billed_count = order_count
-
-    st.caption(f"Shopify Order Date: {selected_date_label}")
-
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Order Count", f"{order_count:,}")
-    k2.metric("Order Subtotal Value", _format_inr_kpi(order_subtotal_value))
-    k3.metric("Invoice Value", _format_inr_kpi(invoice_value))
-    k4.metric("CN Value", _format_inr_kpi(cn_value))
-    k5.metric("Order Billed Count", f"{order_billed_count:,}")
-    k6.metric("Order Not Billed Count", f"{order_not_billed_count:,}")
-
-    st.divider()
-
-
-if not ct.empty:
-    show_selected_date_kpis(ct, date_filter_label)
-
-
-
 if page == "Upload Centre":
     st.subheader(
         "Data Upload Centre"
@@ -656,7 +602,7 @@ if page == "Upload Centre":
                 if st.button(
                     f"Save {source}",
                     key=f"save_{source}",
-                    width="stretch",
+                    use_container_width=True,
                 ):
                     try:
                         with st.spinner(
@@ -743,7 +689,7 @@ if page == "Upload Centre":
 
         st.dataframe(
             db_counts,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -769,7 +715,7 @@ if page == "Upload Centre":
         else:
             st.dataframe(
                 history,
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -963,7 +909,7 @@ elif page == "Dashboard":
         show[
             columns_to_show
         ],
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -982,7 +928,7 @@ elif page == "Order Control Tower":
     )
 
     q = f1.text_input(
-        "Search order / invoice / CN / customer / SKU"
+        "Search order / invoice / customer / SKU"
     )
 
     order_status = (
@@ -1077,7 +1023,7 @@ elif page == "Order Control Tower":
 
     st.dataframe(
         view,
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         height=600,
     )
@@ -1168,7 +1114,7 @@ elif page == "Order Control Tower":
                         ],
                     }
                 ),
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -1184,7 +1130,7 @@ elif page == "Order Control Tower":
                         ]
                         == ono
                     ],
-                    width="stretch",
+                    use_container_width=True,
                     hide_index=True,
                 )
 
@@ -1263,7 +1209,7 @@ elif page == "Exceptions":
         ex[
             exception_columns
         ],
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         height=620,
     )
@@ -1326,7 +1272,7 @@ elif page == "Payment Reconciliation":
 
         st.dataframe(
             g,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -1348,7 +1294,7 @@ elif page == "Payment Reconciliation":
 
         st.dataframe(
             payment_view,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
             height=480,
         )
@@ -1370,7 +1316,7 @@ elif page == "Payment Reconciliation":
         ):
             st.dataframe(
                 df.head(300),
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -1447,7 +1393,7 @@ elif page == "Source Health":
 
     st.dataframe(
         pd.DataFrame(rows),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -1500,7 +1446,7 @@ elif page == "Source Health":
         else:
             st.dataframe(
                 history,
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 

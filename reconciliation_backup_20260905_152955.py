@@ -69,7 +69,7 @@ def load_shopify(data_dir):
     if "Order No" not in df.columns and "Name" in df.columns:
         df = df.rename(columns={"Name": "Order No", "Lineitem quantity": "Qty"})
     df["Order No"] = df["Order No"].map(norm_order)
-    for c in ["Subtotal","Total","Refunded Amount","Outstanding Balance","Qty"]:
+    for c in ["Total","Refunded Amount","Outstanding Balance","Qty"]:
         if c in df: df[c] = num(df[c])
     for c in ["Created at","Paid at","Fulfilled at","Cancelled at"]:
         if c in df: df[c] = pd.to_datetime(df[c], errors="coerce", utc=True).dt.tz_convert(None)
@@ -86,7 +86,7 @@ def aggregate_shopify(df):
     out = grp.agg({
         "Created at":"min", "Email":first_nonblank, "Financial Status":first_nonblank,
         "Paid at":"min", "Fulfillment Status":first_nonblank, "Fulfilled at":"max",
-        "Subtotal":"max", "Total":"max", "Refunded Amount":"max", "Outstanding Balance":"max",
+        "Total":"max", "Refunded Amount":"max", "Outstanding Balance":"max",
         "Cancelled at":"max", "Payment Method":first_nonblank, "Payment Reference":first_nonblank,
         "Payment ID":first_nonblank, "Billing Name":first_nonblank, "Billing Phone":first_nonblank,
         "Shipping Name":first_nonblank, "Shipping Phone":first_nonblank,
@@ -110,169 +110,35 @@ def aggregate_shopify(df):
 
 def load_sales(data_dir):
     path = source_path(data_dir, "Sale Register")
-    if not path.exists():
-        return pd.DataFrame()
-
+    if not path.exists(): return pd.DataFrame()
     xl = pd.ExcelFile(path)
     sheet = "MSD" if "MSD" in xl.sheet_names else xl.sheet_names[-1]
     df = read_excel(path, sheet_name=sheet)
-
-    if "Po Number" not in df.columns:
-        return pd.DataFrame()
-
-    # Multi-item invoices often repeat header values only on the first row.
-    # Fill those header fields down so every item row stays linked to the
-    # correct Shopify order and invoice before aggregation.
-    header_cols = [
-        "Po Number",
-        "Invoice No",
-        "Invoice Date",
-        "Document Type",
-    ]
-    for c in header_cols:
-        if c in df.columns:
-            df[c] = df[c].ffill()
-
+    if "Po Number" not in df.columns: return pd.DataFrame()
     df["Order No"] = df["Po Number"].map(norm_order)
-
-    for c in ["Gross Amount", "Quantity"]:
-        if c in df.columns:
-            df[c] = num(df[c])
-
-    if "Invoice Date" in df.columns:
-        df["Invoice Date"] = pd.to_datetime(
-            df["Invoice Date"],
-            errors="coerce",
-        )
-
-    df = df[df["Order No"].astype(str).str.strip().ne("")].copy()
-
+    for c in ["Gross Amount","Quantity"]:
+        if c in df: df[c] = num(df[c])
+    if "Invoice Date" in df: df["Invoice Date"] = pd.to_datetime(df["Invoice Date"], errors="coerce")
     return df
 
 
 def aggregate_sales(df):
-    if df.empty:
-        return pd.DataFrame(columns=[
-            "Order No",
-            "Invoice_No",
-            "Invoice_Date",
-            "Invoice_Value",
-            "Invoice_Qty",
-            "CN_No",
-            "CN_Date",
-            "CN_Value",
-        ])
-
-    df = df.copy()
-
-    if "Document Type" in df.columns:
-        doc_type = (
-            df["Document Type"]
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-        inv = df[doc_type.eq("invoice")].copy()
-        credits = df[
-            doc_type.str.contains(
-                "credit|return|cn",
-                regex=True,
-                na=False,
-            )
-        ].copy()
-    else:
-        inv = df.copy()
-        credits = pd.DataFrame(columns=df.columns)
-
-    out = df[["Order No"]].drop_duplicates().copy()
-
-    if not inv.empty:
-        g = inv.groupby("Order No")
-
-        if "Gross Amount" in inv.columns:
-            out = out.merge(
-                g["Gross Amount"].sum().rename("Invoice_Value"),
-                on="Order No",
-                how="left",
-            )
-
-        if "Quantity" in inv.columns:
-            out = out.merge(
-                g["Quantity"].sum().rename("Invoice_Qty"),
-                on="Order No",
-                how="left",
-            )
-
-        if "Invoice Date" in inv.columns:
-            out = out.merge(
-                g["Invoice Date"].max().rename("Invoice_Date"),
-                on="Order No",
-                how="left",
-            )
-
-        if "Invoice No" in inv.columns:
-            invnos = g["Invoice No"].apply(
-                lambda x: ", ".join(
-                    dict.fromkeys(
-                        clean_str(v)
-                        for v in x
-                        if clean_str(v)
-                    )
-                )
-            ).rename("Invoice_No")
-            out = out.merge(invnos, on="Order No", how="left")
-
+    if df.empty: return pd.DataFrame(columns=["Order No"])
+    inv = df[df["Document Type"].astype(str).str.lower().eq("invoice")] if "Document Type" in df else df.copy()
+    credit_mask = df["Document Type"].astype(str).str.lower().str.contains("credit|return|cn", regex=True) if "Document Type" in df else pd.Series(False,index=df.index)
+    credits = df[credit_mask].copy()
+    g = inv.groupby("Order No")
+    out = g.agg(
+        Invoice_Value=("Gross Amount","sum"), Invoice_Qty=("Quantity","sum"),
+        Invoice_Date=("Invoice Date","max") if "Invoice Date" in inv else ("Order No","size")
+    ).reset_index()
+    if "Invoice No" in inv:
+        invnos = g["Invoice No"].apply(lambda x: ", ".join(dict.fromkeys([clean_str(v) for v in x if clean_str(v)]))).rename("Invoice_No")
+        out = out.merge(invnos, on="Order No", how="left")
     if not credits.empty:
-        cg = credits.groupby("Order No")
-
-        if "Gross Amount" in credits.columns:
-            out = out.merge(
-                cg["Gross Amount"].sum().abs().rename("CN_Value"),
-                on="Order No",
-                how="left",
-            )
-
-        if "Invoice No" in credits.columns:
-            cn_nos = cg["Invoice No"].apply(
-                lambda x: ", ".join(
-                    dict.fromkeys(
-                        clean_str(v)
-                        for v in x
-                        if clean_str(v)
-                    )
-                )
-            ).rename("CN_No")
-            out = out.merge(cn_nos, on="Order No", how="left")
-
-        if "Invoice Date" in credits.columns:
-            out = out.merge(
-                cg["Invoice Date"].max().rename("CN_Date"),
-                on="Order No",
-                how="left",
-            )
-
-    defaults = {
-        "Invoice_No": "",
-        "Invoice_Date": pd.NaT,
-        "Invoice_Value": 0,
-        "Invoice_Qty": 0,
-        "CN_No": "",
-        "CN_Date": pd.NaT,
-        "CN_Value": 0,
-    }
-
-    for col, default in defaults.items():
-        if col not in out.columns:
-            out[col] = default
-
-    for col in ["Invoice_Value", "Invoice_Qty", "CN_Value"]:
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
-
-    for col in ["Invoice_No", "CN_No"]:
-        out[col] = out[col].fillna("").astype(str)
-        out[col] = out[col].replace({"nan": "", "None": ""})
-
+        cg=credits.groupby("Order No")["Gross Amount"].sum().abs().rename("CN_Value")
+        out=out.merge(cg,on="Order No",how="left")
+    out["CN_Value"] = out.get("CN_Value",0)
     return out
 
 
@@ -357,7 +223,7 @@ def load_payment_matches(data_dir, master):
                 if order:
                     rows.append({"Order No":order,"Gateway":src,"Txn_Amount":float(pd.to_numeric(r.get("amount"),errors="coerce") or 0),
                         "Net_Settlement":float(pd.to_numeric(r.get("settled_amount"),errors="coerce") or 0),
-                        "Settlement_Date":pd.to_datetime(r.get("settled_date"), errors="coerce", dayfirst=True),"UTR":clean_str(r.get("utr_no")),
+                        "Settlement_Date":pd.to_datetime(r.get("settled_date"),errors="coerce"),"UTR":clean_str(r.get("utr_no")),
                         "Action":clean_str(r.get("transaction_type")),"Match_Method":method})
                 else: um.append(r)
             matches.append(pd.DataFrame(rows));
@@ -423,17 +289,6 @@ def build_control_tower(data_dir):
     ct["Exception Reason"]=reasons
     ct["Final Closure"]=np.where(ct["Exception Reason"].ne(""),"Action Required",np.where((ct["Order Status"].eq("Cancelled"))|((ct["Billing Status"].eq("Billed"))&(ct["Fulfilment Status"].eq("Fulfilled"))&(ct["Settlement Status"].isin(["Settled","Not Applicable"]))),"Closed","Open"))
     ct["Order Age Days"]=(pd.Timestamp.today().normalize()-pd.to_datetime(ct["Created at"],errors="coerce")).dt.days
-    cols=[
-        "Order No","Created at","Billing Name","Email","Subtotal","Total",
-        "Order Qty","SKUs","Payment Method","Financial Status",
-        "Order Status","Fulfilment Status","Billing Status",
-        "Invoice_No","Invoice_Date","Invoice_Value",
-        "CN Status","CN_No","CN_Date","CN_Value",
-        "Payment Status","Matched_Gateway","Gateway_Collection",
-        "Gateway_Refund","Gateway_Settlement","Settlement Status",
-        "Last_Settlement_Date","Settlement_UTR","Settlement Difference",
-        "Refund Status","Refunded Amount","Outstanding Balance",
-        "Final Closure","Exception Reason","Match_Method","Products"
-    ]
+    cols=["Order No","Created at","Billing Name","Email","Total","Order Qty","SKUs","Payment Method","Financial Status","Order Status","Fulfilment Status","Billing Status","Invoice_No","Invoice_Date","Invoice_Value","CN Status","CN_Value","Payment Status","Matched_Gateway","Gateway_Collection","Gateway_Refund","Gateway_Settlement","Settlement Status","Last_Settlement_Date","Settlement_UTR","Settlement Difference","Refund Status","Refunded Amount","Outstanding Balance","Final Closure","Exception Reason","Match_Method","Products"]
     cols=[c for c in cols if c in ct.columns]
     return ct[cols].sort_values("Created at",ascending=False), matches, unmatched, raw

@@ -231,7 +231,7 @@ with st.sidebar:
     )
 
     page = st.radio(
-        "Navigation",
+        "",
         [
             "Dashboard",
             "Order Control Tower",
@@ -656,7 +656,7 @@ if page == "Upload Centre":
                 if st.button(
                     f"Save {source}",
                     key=f"save_{source}",
-                    width="stretch",
+                    use_container_width=True,
                 ):
                     try:
                         with st.spinner(
@@ -743,7 +743,7 @@ if page == "Upload Centre":
 
         st.dataframe(
             db_counts,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -769,7 +769,7 @@ if page == "Upload Centre":
         else:
             st.dataframe(
                 history,
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -963,7 +963,7 @@ elif page == "Dashboard":
         show[
             columns_to_show
         ],
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -1077,7 +1077,7 @@ elif page == "Order Control Tower":
 
     st.dataframe(
         view,
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         height=600,
     )
@@ -1168,7 +1168,7 @@ elif page == "Order Control Tower":
                         ],
                     }
                 ),
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -1184,7 +1184,7 @@ elif page == "Order Control Tower":
                         ]
                         == ono
                     ],
-                    width="stretch",
+                    use_container_width=True,
                     hide_index=True,
                 )
 
@@ -1263,7 +1263,7 @@ elif page == "Exceptions":
         ex[
             exception_columns
         ],
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
         height=620,
     )
@@ -1326,7 +1326,7 @@ elif page == "Payment Reconciliation":
 
         st.dataframe(
             g,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
         )
 
@@ -1348,7 +1348,7 @@ elif page == "Payment Reconciliation":
 
         st.dataframe(
             payment_view,
-            width="stretch",
+            use_container_width=True,
             hide_index=True,
             height=480,
         )
@@ -1370,7 +1370,7 @@ elif page == "Payment Reconciliation":
         ):
             st.dataframe(
                 df.head(300),
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 
@@ -1447,7 +1447,7 @@ elif page == "Source Health":
 
     st.dataframe(
         pd.DataFrame(rows),
-        width="stretch",
+        use_container_width=True,
         hide_index=True,
     )
 
@@ -1500,7 +1500,7 @@ elif page == "Source Health":
         else:
             st.dataframe(
                 history,
-                width="stretch",
+                use_container_width=True,
                 hide_index=True,
             )
 

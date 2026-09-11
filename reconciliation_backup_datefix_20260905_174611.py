@@ -357,7 +357,7 @@ def load_payment_matches(data_dir, master):
                 if order:
                     rows.append({"Order No":order,"Gateway":src,"Txn_Amount":float(pd.to_numeric(r.get("amount"),errors="coerce") or 0),
                         "Net_Settlement":float(pd.to_numeric(r.get("settled_amount"),errors="coerce") or 0),
-                        "Settlement_Date":pd.to_datetime(r.get("settled_date"), errors="coerce", dayfirst=True),"UTR":clean_str(r.get("utr_no")),
+                        "Settlement_Date":pd.to_datetime(r.get("settled_date"),errors="coerce"),"UTR":clean_str(r.get("utr_no")),
                         "Action":clean_str(r.get("transaction_type")),"Match_Method":method})
                 else: um.append(r)
             matches.append(pd.DataFrame(rows));

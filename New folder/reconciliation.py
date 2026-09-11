@@ -36,6 +36,19 @@ def norm_order(v):
     return f"#{m.group(1)}" if m else s
 
 
+def norm_shopify_order(v):
+    """Strict Shopify order matcher for MSD Po Number.
+
+    Only an exact #<digits> value is accepted. This prevents non-Shopify
+    MSD references such as PH26901-001 or dated NEFT text from being
+    incorrectly converted into Shopify order numbers.
+    """
+    s = clean_str(v)
+    if not s:
+        return ""
+    return s if re.fullmatch(r"#[0-9]+", s) else ""
+
+
 def norm_id(v):
     return clean_str(v).replace("'", "")
 
@@ -72,7 +85,12 @@ def load_shopify(data_dir):
     for c in ["Subtotal","Total","Refunded Amount","Outstanding Balance","Qty"]:
         if c in df: df[c] = num(df[c])
     for c in ["Created at","Paid at","Fulfilled at","Cancelled at"]:
-        if c in df: df[c] = pd.to_datetime(df[c], errors="coerce", utc=True).dt.tz_convert(None)
+        if c in df:
+            df[c] = (
+                pd.to_datetime(df[c], errors="coerce", utc=True)
+                .dt.tz_convert("Asia/Kolkata")
+                .dt.tz_localize(None)
+            )
     return df
 
 
@@ -133,7 +151,7 @@ def load_sales(data_dir):
         if c in df.columns:
             df[c] = df[c].ffill()
 
-    df["Order No"] = df["Po Number"].map(norm_order)
+    df["Order No"] = df["Po Number"].map(norm_shopify_order)
 
     for c in ["Gross Amount", "Quantity"]:
         if c in df.columns:
@@ -227,8 +245,14 @@ def aggregate_sales(df):
         cg = credits.groupby("Order No")
 
         if "Gross Amount" in credits.columns:
+            cn_values = (
+                credits.assign(_CN_Abs=credits["Gross Amount"].abs())
+                .groupby("Order No")["_CN_Abs"]
+                .sum()
+                .rename("CN_Value")
+            )
             out = out.merge(
-                cg["Gross Amount"].sum().abs().rename("CN_Value"),
+                cn_values,
                 on="Order No",
                 how="left",
             )

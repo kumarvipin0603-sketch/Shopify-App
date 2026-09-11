@@ -110,43 +110,15 @@ def aggregate_shopify(df):
 
 def load_sales(data_dir):
     path = source_path(data_dir, "Sale Register")
-    if not path.exists():
-        return pd.DataFrame()
-
+    if not path.exists(): return pd.DataFrame()
     xl = pd.ExcelFile(path)
     sheet = "MSD" if "MSD" in xl.sheet_names else xl.sheet_names[-1]
     df = read_excel(path, sheet_name=sheet)
-
-    if "Po Number" not in df.columns:
-        return pd.DataFrame()
-
-    # Multi-item invoices often repeat header values only on the first row.
-    # Fill those header fields down so every item row stays linked to the
-    # correct Shopify order and invoice before aggregation.
-    header_cols = [
-        "Po Number",
-        "Invoice No",
-        "Invoice Date",
-        "Document Type",
-    ]
-    for c in header_cols:
-        if c in df.columns:
-            df[c] = df[c].ffill()
-
+    if "Po Number" not in df.columns: return pd.DataFrame()
     df["Order No"] = df["Po Number"].map(norm_order)
-
-    for c in ["Gross Amount", "Quantity"]:
-        if c in df.columns:
-            df[c] = num(df[c])
-
-    if "Invoice Date" in df.columns:
-        df["Invoice Date"] = pd.to_datetime(
-            df["Invoice Date"],
-            errors="coerce",
-        )
-
-    df = df[df["Order No"].astype(str).str.strip().ne("")].copy()
-
+    for c in ["Gross Amount","Quantity"]:
+        if c in df: df[c] = num(df[c])
+    if "Invoice Date" in df: df["Invoice Date"] = pd.to_datetime(df["Invoice Date"], errors="coerce")
     return df
 
 
@@ -357,7 +329,7 @@ def load_payment_matches(data_dir, master):
                 if order:
                     rows.append({"Order No":order,"Gateway":src,"Txn_Amount":float(pd.to_numeric(r.get("amount"),errors="coerce") or 0),
                         "Net_Settlement":float(pd.to_numeric(r.get("settled_amount"),errors="coerce") or 0),
-                        "Settlement_Date":pd.to_datetime(r.get("settled_date"), errors="coerce", dayfirst=True),"UTR":clean_str(r.get("utr_no")),
+                        "Settlement_Date":pd.to_datetime(r.get("settled_date"),errors="coerce"),"UTR":clean_str(r.get("utr_no")),
                         "Action":clean_str(r.get("transaction_type")),"Match_Method":method})
                 else: um.append(r)
             matches.append(pd.DataFrame(rows));

@@ -46,10 +46,10 @@ def clean_value(value):
         return value
 
     if isinstance(value, pd.Timestamp):
-        return value.isoformat()
+        return value.isoformat(sep=" ")
 
     if isinstance(value, datetime):
-        return value.isoformat()
+        return value.isoformat(sep=" ")
 
     if isinstance(value, numbers.Integral):
         return str(int(value))
@@ -205,10 +205,16 @@ def make_business_key(source, row):
             ["Merchant Txn ID"]
         )
 
+        requested_action = first_value(
+            row,
+            ["Requested Action"]
+        )
+
         key = "|".join(
             [
                 normalize_key(payu_id),
                 normalize_key(merchant_txn),
+                normalize_key(requested_action),
             ]
         )
 
@@ -493,172 +499,7 @@ def create_database_tables():
         conn.close()
 
 
-
-def sync_sale_register_snapshot(df, file_name=""):
-    """
-    Store the Sale Register as a complete row-preserving snapshot.
-
-    Every physical row gets a stable positional key, so genuine repeated
-    invoice/product rows are never collapsed by business-key deduplication.
-    Re-uploading the same file remains idempotent; changed rows update,
-    appended rows insert, and rows removed from the new snapshot are deleted.
-    """
-    source = "Sale Register"
-    table = SOURCE_TABLES[source]
-
-    create_database_tables()
-    df = prepare_dataframe(df).reset_index(drop=True)
-    total_rows = len(df)
-
-    prepared = []
-    current_keys = []
-
-    for pos, (_, row) in enumerate(df.iterrows(), start=1):
-        row_dict = {
-            str(col): clean_value(value)
-            for col, value in row.items()
-        }
-
-        business_key = f"sale-row:{pos:09d}"
-        current_hash = row_hash(row_dict)
-
-        prepared.append(
-            (
-                business_key,
-                current_hash,
-                row_dict,
-            )
-        )
-        current_keys.append(business_key)
-
-    conn = get_connection()
-
-    try:
-        cur = conn.cursor()
-
-        cur.execute(
-            f"""
-            SELECT business_key, row_hash
-            FROM {table}
-            """
-        )
-        existing = dict(cur.fetchall())
-
-        new_rows = 0
-        updated_rows = 0
-        unchanged_rows = 0
-        records_to_write = []
-
-        for business_key, current_hash, row_dict in prepared:
-            old_hash = existing.get(business_key)
-
-            if old_hash is None:
-                new_rows += 1
-                records_to_write.append(
-                    (
-                        business_key,
-                        current_hash,
-                        Json(row_dict),
-                        file_name,
-                    )
-                )
-            elif old_hash == current_hash:
-                unchanged_rows += 1
-            else:
-                updated_rows += 1
-                records_to_write.append(
-                    (
-                        business_key,
-                        current_hash,
-                        Json(row_dict),
-                        file_name,
-                    )
-                )
-
-        if records_to_write:
-            execute_values(
-                cur,
-                f"""
-                INSERT INTO {table}
-                (
-                    business_key,
-                    row_hash,
-                    data,
-                    source_file
-                )
-                VALUES %s
-                ON CONFLICT (business_key)
-                DO UPDATE SET
-                    row_hash = EXCLUDED.row_hash,
-                    data = EXCLUDED.data,
-                    source_file = EXCLUDED.source_file,
-                    updated_at = NOW()
-                """,
-                records_to_write,
-                page_size=500,
-            )
-
-        # Remove rows that existed in the previous snapshot but are not
-        # present in the newly uploaded file.
-        if current_keys:
-            cur.execute(
-                f"""
-                DELETE FROM {table}
-                WHERE business_key NOT LIKE 'sale-row:%%'
-                   OR business_key > %s
-                """,
-                (current_keys[-1],),
-            )
-        else:
-            cur.execute(f"DELETE FROM {table}")
-
-        cur.execute(
-            """
-            INSERT INTO upload_history
-            (
-                source_name,
-                file_name,
-                total_rows,
-                new_rows,
-                updated_rows,
-                skipped_rows,
-                failed_rows
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                source,
-                file_name,
-                total_rows,
-                new_rows,
-                updated_rows,
-                unchanged_rows,
-                0,
-            ),
-        )
-
-        conn.commit()
-
-    except Exception:
-        conn.rollback()
-        raise
-
-    finally:
-        conn.close()
-
-    return {
-        "total": total_rows,
-        "new": new_rows,
-        "updated": updated_rows,
-        "skipped": unchanged_rows,
-        "failed": 0,
-    }
-
-
 def upsert_dataframe(source, df, file_name=""):
-    if source == "Sale Register":
-        return sync_sale_register_snapshot(df, file_name=file_name)
-
     if source not in SOURCE_TABLES:
         raise ValueError(
             f"Unknown source: {source}"
@@ -844,52 +685,13 @@ def read_source_from_database(source):
     try:
         cur = conn.cursor()
 
-        order_by = (
-            "business_key"
-            if source == "Sale Register"
-            else "id"
+        cur.execute(
+            f"""
+            SELECT data
+            FROM {table}
+            ORDER BY id
+            """
         )
-
-        if source == "Sale Register":
-            # Sale Register was migrated to row-preserving snapshot keys.
-            # If snapshot rows exist, read ONLY those rows so any legacy
-            # pre-migration business-key rows cannot duplicate Dashboard values.
-            cur.execute(
-                f"""
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM {table}
-                    WHERE business_key LIKE 'sale-row:%'
-                )
-                """
-            )
-            has_snapshot_rows = bool(cur.fetchone()[0])
-
-            if has_snapshot_rows:
-                cur.execute(
-                    f"""
-                    SELECT data
-                    FROM {table}
-                    WHERE business_key LIKE 'sale-row:%'
-                    ORDER BY business_key
-                    """
-                )
-            else:
-                cur.execute(
-                    f"""
-                    SELECT data
-                    FROM {table}
-                    ORDER BY {order_by}
-                    """
-                )
-        else:
-            cur.execute(
-                f"""
-                SELECT data
-                FROM {table}
-                ORDER BY {order_by}
-                """
-            )
 
         records = [
             row[0]
@@ -916,34 +718,14 @@ def get_database_counts():
         cur = conn.cursor()
 
         for source, table in SOURCE_TABLES.items():
-            if source == "Sale Register":
-                cur.execute(
-                    f"""
-                    SELECT COUNT(*)
-                    FROM {table}
-                    WHERE business_key LIKE 'sale-row:%'
-                    """
-                )
-                snapshot_count = cur.fetchone()[0]
+            cur.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM {table}
+                """
+            )
 
-                if snapshot_count:
-                    count = snapshot_count
-                else:
-                    cur.execute(
-                        f"""
-                        SELECT COUNT(*)
-                        FROM {table}
-                        """
-                    )
-                    count = cur.fetchone()[0]
-            else:
-                cur.execute(
-                    f"""
-                    SELECT COUNT(*)
-                    FROM {table}
-                    """
-                )
-                count = cur.fetchone()[0]
+            count = cur.fetchone()[0]
 
             rows.append(
                 {
